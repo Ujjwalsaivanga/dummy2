@@ -1,0 +1,62 @@
+# Runtime model, UNKNOWN-rejection, and anomaly configuration.
+version: 1
+
+model:
+  training_dataset_path: ../data/processed/training_dataset.parquet
+  models_dir: ../models
+  training_metrics_path: ../artifacts/training_metrics.json
+
+feature_extraction:
+  window_duration_seconds: 10.0
+  burst_gap_seconds: 0.1
+  idle_gap_seconds: 1.0
+
+grpc:
+  host: 127.0.0.1
+  port: 50051
+  max_workers: 4
+  request_timeout_seconds: 5.0
+  shutdown_grace_seconds: 5.0
+  explanations_enabled: false
+
+unknown_detection:
+  method: max_class_probability_threshold
+  # The checked-in value predates the dedicated known-calibration partition.
+  # Re-run train and calibrate_unknown to select a threshold from disjoint
+  # known/OOD calibration groups before presenting refreshed evaluation results.
+  confidence_threshold: 0.85
+  candidate_thresholds:
+    - 0.30
+    - 0.40
+    - 0.50
+    - 0.60
+    - 0.65
+    - 0.70
+    - 0.75
+    - 0.80
+    - 0.85
+    - 0.90
+    - 0.95
+  # Paths are relative to this configuration file.
+  ood_dataset_paths:
+    - ../data/processed/ipsec-pcap-lab-ood.parquet
+  calibration_metrics_path: ../artifacts/unknown_calibration.json
+  limitation: >-
+    Confidence-threshold rejection is a baseline open-set method and cannot
+    perfectly detect every unknown or out-of-distribution traffic type.
+
+anomaly_detection:
+  enabled: true
+  method: isolation_forest
+  contamination: 0.05
+  n_estimators: 200
+  random_seed: 42
+  normalization_quantiles:
+    - 0.01
+    - 0.99
+  model_path: ../models/isolation_forest.joblib
+  metadata_path: ../models/anomaly_metadata.json
+  metrics_path: ../artifacts/anomaly_metrics.json
+  # Contains locked normal captures plus anomaly-only evaluation captures.
+  # It is never used for fitting.
+  evaluation_dataset_path: ../data/processed/ipsec-pcap-lab-anomaly-evaluation.parquet

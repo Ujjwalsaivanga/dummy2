@@ -1,0 +1,75 @@
+name: alchemist-backend
+
+# Deployment: Go Core API + its private ML worker only.
+# The Next.js frontend is deployed independently on Vercel.
+services:
+  ml:
+    build:
+      context: ./backend/ml-service
+      dockerfile: Dockerfile
+      # Docker bridge cannot reach the host's DNS resolver. Permit host
+      # networking only for BuildKit dependency downloads; the running service
+      # remains on Compose's private network.
+      network: host
+      entitlements:
+        - network.host
+    init: true
+    environment:
+      ML_GRPC_HOST: ${ML_GRPC_HOST:-0.0.0.0}
+      ML_GRPC_PORT: ${ML_GRPC_PORT:-50051}
+    expose:
+      - "50051"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      network: host
+      entitlements:
+        - network.host
+    depends_on:
+      ml:
+        condition: service_started
+    init: true
+    environment:
+      ML_GRPC_ADDRESS: ${ML_GRPC_ADDRESS:-ml:50051}
+      CORE_HTTP_ADDRESS: 0.0.0.0:8080
+      CORE_GRPC_ADDRESS: 0.0.0.0:50052
+      REPORT_TEMP_DIRECTORY: /var/lib/alchemist/reports
+      LAB_DATABASE_PATH: /var/lib/alchemist/labs/app.db
+      # This is fixed by deployment configuration, never supplied by a browser.
+      LAB_RUNNER_SCRIPT: /opt/alchemist/lab/scripts/managed.sh
+      # Required for every /api/v1/labs route. Use the same server-only value
+      # in the frontend deployment; never expose it as NEXT_PUBLIC_*.
+      LAB_API_TOKEN: ${LAB_API_TOKEN}
+      HOME: /tmp
+      DOCKER_CONFIG: /tmp/.docker
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      CORS_ALLOWED_METHODS: ${CORS_ALLOWED_METHODS:-GET,POST,OPTIONS}
+      CORS_ALLOWED_HEADERS: ${CORS_ALLOWED_HEADERS:-Authorization,Content-Type,X-Requested-With}
+      CORS_EXPOSED_HEADERS: ${CORS_EXPOSED_HEADERS:-Content-Disposition,Content-Type}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-false}
+      CORS_MAX_AGE: ${CORS_MAX_AGE:-600}
+    # The HTTP API is public for Vercel's server-side proxy. gRPC and the ML
+    # worker stay private inside the Docker network.
+    ports:
+      - "${CORE_BIND_HOST:-0.0.0.0}:${CORE_HTTP_PORT:-8080}:8080"
+    volumes:
+      - report-data:/var/lib/alchemist/reports
+      - lab-data:/var/lib/alchemist/labs
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Set DOCKER_GID=$(stat -c '%g' /var/run/docker.sock) in .env on Linux.
+    group_add:
+      - "${DOCKER_GID:-988}"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  report-data:
+  lab-data:

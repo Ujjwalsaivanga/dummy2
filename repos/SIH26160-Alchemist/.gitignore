@@ -1,0 +1,31 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+backend/ml-service/.venv/
+ipsec-pcap-lab/
+# Local deployment configuration and secrets. Commit only templates.
+.env
+.env.*
+!.env.example
+
+# Public datasets and generated ML products stay local. Keep the checked-in
+# IPsec lab manifest/metadata while excluding any restored capture corpus.
+backend/ml-service/data/external/*
+!backend/ml-service/data/external/ipsec-pcap-lab/
+backend/ml-service/data/external/ipsec-pcap-lab/*
+!backend/ml-service/data/external/ipsec-pcap-lab/*.md
+!backend/ml-service/data/external/ipsec-pcap-lab/*.csv
+backend/ml-service/data/processed/*.parquet
+backend/ml-service/models/*.joblib
+backend/ml-service/models/*.json
+
+# Generated, potentially large lab captures and transient gateway config.
+backend/lab/output/
+backend/lab/runtime/
+
+# The small selected production classifier and its metadata are required for
+# reproducible Docker builds. Alternate/training-only models remain local.
+!backend/ml-service/models/random_forest.joblib
+!backend/ml-service/models/model_metadata.json

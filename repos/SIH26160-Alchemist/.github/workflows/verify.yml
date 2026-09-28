@@ -1,0 +1,64 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - uses: arduino/setup-protoc@v3
+        with:
+          # Keep the generated-code verification reproducible. These versions
+          # match the generator headers in backend/gen/go.
+          version: "33.1"
+      - run: go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+      - run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.1
+      - run: make proto
+      - run: git diff --exit-code -- gen
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: python3 -m unittest discover -s lab/tests -p 'test_*.py'
+
+  ml:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/ml-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm exec node --test tests/*.test.mjs
+      - run: pnpm build

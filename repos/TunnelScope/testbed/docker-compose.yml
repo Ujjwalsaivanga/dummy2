@@ -1,0 +1,202 @@
+# SIH26160 testbed — classical arm (strongSwan 5.9.8 via Debian apt).
+#
+# Topology (see testbed/TOPOLOGY.md for the diagram and rationale):
+#
+#   alice (10.10.1.10) --- router (10.10.1.1 / 10.10.2.1, IP-forwarding, tcpdump vantage) --- bob (10.10.2.10)
+#
+# `router` has NO strongSwan, NO keys, NO IPsec configuration. It is a genuine
+# third-party path observer: everything it captures is exactly what a passive
+# T0 adversary on the wire would see. alice/bob never talk to each other
+# directly at L2 — they are on separate Docker bridge networks and must route
+# through `router`, which is the point.
+#
+# Ground truth for every experiment comes from `swanctl --list-sas` / vici on
+# alice and bob (T2), never from what the analyzer infers (T0/T1). See
+# EXPERIMENT-REGISTER.md ground-truth column for each experiment.
+
+services:
+  router:
+    build:
+      context: ./images/router
+    container_name: sih26-router
+    hostname: router
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      net.ipv4.ip_forward: 1
+      net.ipv4.conf.all.rp_filter: 0
+      net.ipv4.conf.default.rp_filter: 0
+    networks:
+      net-a: { ipv4_address: 10.10.1.1 }
+      net-b: { ipv4_address: 10.10.2.1 }
+    volumes:
+      - ./captures:/captures
+    command: ["sleep", "infinity"]
+
+  alice:
+    build:
+      context: ./images/strongswan
+      dockerfile: Dockerfile.classical
+    container_name: sih26-alice
+    hostname: alice
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-a: { ipv4_address: 10.10.1.10 }
+    environment:
+      ROUTE_CIDR: 10.10.2.0/24
+      ROUTE_GW: 10.10.1.1
+    volumes:
+      - ./configs/alice/swanctl.conf:/etc/swanctl/swanctl.conf:ro
+      - ./configs/alice/strongswan.conf:/etc/strongswan.conf:ro
+      - ./configs/exp06:/etc/swanctl/exp06:ro   # EXP-06 round 2 (gen_exp06_conf.py)
+      - ./captures:/captures
+    depends_on: [router]
+    command: ["charon"]
+
+  bob:
+    build:
+      context: ./images/strongswan
+      dockerfile: Dockerfile.classical
+    container_name: sih26-bob
+    hostname: bob
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-b: { ipv4_address: 10.10.2.10 }
+    environment:
+      ROUTE_CIDR: 10.10.1.0/24
+      ROUTE_GW: 10.10.2.1
+    volumes:
+      - ./configs/bob/swanctl.conf:/etc/swanctl/swanctl.conf:ro
+      - ./configs/bob/strongswan.conf:/etc/strongswan.conf:ro
+      - ./configs/exp06:/etc/swanctl/exp06:ro   # EXP-06 round 2 (gen_exp06_conf.py)
+      - ./captures:/captures
+    depends_on: [router]
+    command: ["charon"]
+
+  # --- PQ arm (EXP-04, EXP-05): source-built strongSwan 6.1.0 with the native `ml`
+  # (ML-KEM, RFC 9370 ADDKE) plugin. Same router, same networks, different
+  # IPs, so the existing forwarding/capture setup is reused unchanged.
+  alice-pq:
+    build:
+      context: ./images/strongswan-pq
+    container_name: sih26-alice-pq
+    hostname: alice-pq
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      # EXP-16: real app hosts sit BEHIND these gateways, so they must forward
+      net.ipv4.ip_forward: 1
+      net.ipv4.conf.all.rp_filter: 0
+      net.ipv4.conf.default.rp_filter: 0
+    networks:
+      net-a: { ipv4_address: 10.10.1.20 }
+    environment:
+      ROUTE_CIDR: 10.10.2.0/24
+      ROUTE_GW: 10.10.1.1
+    volumes:
+      - ./configs/alice-pq/swanctl.conf:/etc/swanctl/swanctl.conf:ro
+      - ./configs/alice-pq/strongswan.conf:/etc/strongswan.conf:ro
+      - ./configs/exp05:/etc/swanctl/exp05:ro   # EXP-05 (gen_exp05_conf.py)
+      - ./captures:/captures
+    depends_on: [router]
+    command: ["charon"]
+
+  bob-pq:
+    build:
+      context: ./images/strongswan-pq
+    container_name: sih26-bob-pq
+    hostname: bob-pq
+    cap_add: [NET_ADMIN, NET_RAW]
+    sysctls:
+      # EXP-16: real app hosts sit BEHIND these gateways, so they must forward
+      net.ipv4.ip_forward: 1
+      net.ipv4.conf.all.rp_filter: 0
+      net.ipv4.conf.default.rp_filter: 0
+    networks:
+      net-b: { ipv4_address: 10.10.2.20 }
+    environment:
+      ROUTE_CIDR: 10.10.1.0/24
+      ROUTE_GW: 10.10.2.1
+    volumes:
+      - ./configs/bob-pq/swanctl.conf:/etc/swanctl/swanctl.conf:ro
+      - ./configs/bob-pq/strongswan.conf:/etc/strongswan.conf:ro
+      - ./configs/exp05:/etc/swanctl/exp05:ro   # EXP-05 (gen_exp05_conf.py)
+      - ./captures:/captures
+    depends_on: [router]
+    command: ["charon"]
+
+  # --- EXP-07: Libreswan 5.4 (Fedora rawhide, pinned) — second implementation.
+  # Same router and networks; one ipsec.conf serves both peers.
+  lsw-a:
+    build:
+      context: ./images/libreswan
+    container_name: sih26-lsw-a
+    hostname: lsw-a
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-a: { ipv4_address: 10.10.1.30 }
+    environment:
+      ROUTE_CIDR: 10.10.2.0/24
+      ROUTE_GW: 10.10.1.1
+    volumes:
+      - ./configs/exp07/ipsec.conf:/etc/ipsec.conf:ro
+      - ./configs/exp07/ipsec.secrets:/etc/ipsec.secrets:ro
+      - ./captures:/captures
+    depends_on: [router]
+
+  lsw-b:
+    build:
+      context: ./images/libreswan
+    container_name: sih26-lsw-b
+    hostname: lsw-b
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-b: { ipv4_address: 10.10.2.30 }
+    environment:
+      ROUTE_CIDR: 10.10.1.0/24
+      ROUTE_GW: 10.10.2.1
+    volumes:
+      - ./configs/exp07/ipsec.conf:/etc/ipsec.conf:ro
+      - ./configs/exp07/ipsec.secrets:/etc/ipsec.secrets:ro
+      - ./captures:/captures
+    depends_on: [router]
+
+  # EXP-16: real application hosts behind the strongSwan gateways (lab-only
+  # clients and servers: Chromium, nginx, OpenSSH, Postfix/swaks, Prosody, ffmpeg)
+  apps-a:
+    image: sih26-apps
+    container_name: sih26-apps-a
+    hostname: apps-a
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-a: { ipv4_address: 10.10.1.50 }
+    environment:
+      ROUTE_CIDR: 10.10.2.0/24
+      ROUTE_GW: 10.10.1.20        # via the alice-pq gateway, so traffic enters the tunnel
+    volumes:
+      - ./captures:/captures
+    depends_on: [alice-pq]
+
+  apps-b:
+    image: sih26-apps
+    container_name: sih26-apps-b
+    hostname: apps-b
+    cap_add: [NET_ADMIN, NET_RAW]
+    networks:
+      net-b: { ipv4_address: 10.10.2.50 }
+    environment:
+      ROUTE_CIDR: 10.10.1.0/24
+      ROUTE_GW: 10.10.2.20
+    volumes:
+      - ./captures:/captures
+    depends_on: [bob-pq]
+
+networks:
+  net-a:
+    driver: bridge
+    ipam:
+      # Explicit gateway avoids Docker's default gateway landing on .1,
+      # which is also where we want `router` addressable.
+      config: [{ subnet: 10.10.1.0/24, gateway: 10.10.1.254 }]
+  net-b:
+    driver: bridge
+    ipam:
+      config: [{ subnet: 10.10.2.0/24, gateway: 10.10.2.254 }]

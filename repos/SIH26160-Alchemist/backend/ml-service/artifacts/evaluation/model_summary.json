@@ -1,0 +1,16 @@
+{
+  "macro_f1": 1.0,
+  "model_version": "traffic-classifier-291d3300b298",
+  "overall_accuracy": 1.0,
+  "supported_classes": [
+    "email",
+    "file_transfer",
+    "icmp",
+    "messaging",
+    "video",
+    "voip",
+    "web"
+  ],
+  "test_samples": 35,
+  "training_samples": 140
+}

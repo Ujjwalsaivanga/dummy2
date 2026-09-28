@@ -1,0 +1,141 @@
+name: CI
+
+# T-049: the concrete lesson from EXP-10/11/12 was that manual stress-testing
+# against real traffic found 3 genuine bugs the existing 48-test suite and
+# 69-capture e2e check never caught, because that testing needed a real
+# OpenBSD VM / a real cert-auth arm / a real responder-initiated rekey - none
+# of which CI can invent on its own. What CI *does* buy: every one of those
+# bugs is now a permanent regression test, and this workflow's job is making
+# sure the NEXT regression of any of them is caught in seconds, on every
+# push, not found by manual stress-testing again. See
+# build/03-USAGE-AND-OPERATIONS-PLAN.md sec 3.2.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the findings differential checks out the base commit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tshark (non-interactive - it prompts for a Wireshark-group capture-permission choice by default)
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
+      - name: Install TunnelScope + dev deps
+        run: pip install -e ".[dev]"
+
+      - name: Unit tests
+        run: python3 -m pytest tests/ -q
+
+      - name: Installed package works outside the repo (baselines are package data)
+        # Regression guard: an installed wheel once found no baselines (they were
+        # resolved relative to the source checkout) and assessed everything
+        # against nothing, exit 0. Build, install in a clean venv, run from /tmp.
+        run: |
+          python3 -m pip wheel . --no-deps -q -w /tmp/wheel
+          python3 -m venv /tmp/ts && /tmp/ts/bin/pip install -q /tmp/wheel/*.whl
+          cd /tmp && /tmp/ts/bin/tunnelscope assess "$GITHUB_WORKSPACE/testbed/captures/pq-downgrade.pcap" --json > /tmp/a.json
+          python3 -c "import json; v=json.load(open('/tmp/a.json')); assert len({x['baseline'] for x in v}) >= 4, v; assert any(x['rule_id']=='DST-PQ-DOWNGRADE' and x['verdict']=='FAIL' for x in v); print(len(v), 'verdicts from the installed package')"
+
+      - name: Findings differential vs base (T-054; allow-file build/findings-allow.txt)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no base commit (new branch); skipping"; exit 0
+          fi
+          python3 build/findings_diff.py --base "$BASE" --report build/FINDINGS-DIFF.md
+
+      - name: End-to-end validation (69 captures vs causal T2 ground truth)
+        run: python3 build/validate_e2e.py
+
+      - name: Dataset integrity (hashes, provenance, split leakage)
+        run: python3 dataset/validate.py
+
+      - name: Upload E2E report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-validation-report
+          path: |
+            build/E2E-VALIDATION.md
+            build/FINDINGS-DIFF.md
+
+  # The dashboard ships real code (fonts, animation hooks, a reduced-motion
+  # hook) but had no automated check at all until T-055 - every regression in
+  # it so far was caught by a human looking at a screenshot.
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fleet-dashboard
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: fleet-dashboard/package-lock.json
+
+      - name: Install (locked)
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # T-105 B1: the remediation pane in a real browser (Chromium), every /api call answered by
+      # typed fixtures; 13 cases x 1440/375 px x light/dark. The live half needs the lab (local only).
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser tests (mocked engine)
+        run: npx playwright test --project=mock --reporter=line
+        env:
+          CI: "1"
+
+  external:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the findings differential checks out the base commit
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tshark (non-interactive - it prompts for a Wireshark-group capture-permission choice by default)
+        run: |
+          echo "wireshark-common wireshark-common/install-setuid boolean false" | sudo debconf-set-selections
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y tshark
+
+      - name: Install TunnelScope + dev deps
+        run: pip install -e ".[dev]"
+
+      - name: Third-party captures (Wireshark wiki)
+        run: python3 build/validate_external.py

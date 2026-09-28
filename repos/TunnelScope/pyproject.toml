@@ -1,0 +1,38 @@
+[build-system]
+# explicit, so the package-data globs below (tunnelscope/web/**) are honoured
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tunnelscope"
+version = "0.3.0"
+description = "Evidence-tiered IPsec/IKE posture and PQ-migration assessment (SIH26160)"
+requires-python = ">=3.11"
+# fastapi/uvicorn removed (T-049, 2026-09-14): declared from the start but
+# never used anywhere in tunnelscope/ - dead weight that also contradicted
+# I9 (offline by default, no assumed network surface). `tunnelscope serve`
+# (T-059) is a local upload dashboard built on stdlib http.server instead -
+# 127.0.0.1 only, no new dependency. The role-D SIEM-facing API in
+# build/03-USAGE-AND-OPERATIONS-PLAN.md §6 is a separate, still-open item;
+# these deps come back only alongside that one, if it needs them.
+dependencies = ["scikit-learn>=1.3", "numpy>=1.24", "PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# DEC-038 (2026-09-25, owner override of I9/DEC-031's offline-only rule): the ONLY dependency in the
+# project that makes a network call, and only when an operator both installs this extra AND sets
+# TUNNELSCOPE_GENERATOR_BACKEND=cloud plus an API key (tunnelscope/remediate/cloud_client.py). A
+# base `pip install tunnelscope` stays exactly as offline as before this decision.
+cloud = ["google-genai>=1.0"]
+
+[project.scripts]
+tunnelscope = "tunnelscope.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tunnelscope*"]
+
+# Baselines and the built dashboard ship inside the package, so an installed
+# copy (including an air-gapped one, build/05-DEPLOYMENT-ONPREM.md) is complete.
+# tunnelscope/web/ is filled by build/offline/make_bundle.sh; it is gitignored.
+[tool.setuptools.package-data]
+tunnelscope = ["rules/*.yaml", "rules/context/*.yaml", "rules/profiles/*.yaml", "risk/data/*.json", "models/*.npz", "remediate/*.json", "web/*", "web/**/*"]

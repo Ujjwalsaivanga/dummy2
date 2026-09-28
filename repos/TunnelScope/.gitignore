@@ -1,0 +1,90 @@
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Captures: excluded by default (can get large from real deployments), but
+# our own testbed experiment captures are small (tens of KB, synthetic lab
+# traffic only) and ARE the primary evidence artifact for reproducibility —
+# tracked explicitly.
+*.pcap
+*.pcapng
+!testbed/captures/*.pcap
+!testbed/captures/*.pcapng
+!testbed/**/samples/*.pcap
+!testbed/**/samples/*.pcapng
+
+# Secrets
+*.pem
+*.key
+!testbed/**/certs/README.md
+.env
+.env.*
+!.env.example
+
+# Docker volumes / runtime state
+testbed/**/run/
+testbed/**/ipsec.d/private/
+# EXP-11 (T-048): the test CA + RSA private keys for the auth-method
+# experiment. Throwaway, local-only, zero real-world value — but private
+# keys never belong in git regardless. Public certs are kept (harmless,
+# useful for reproducibility); regenerate keys with `ipsec pki --gen` per
+# experiments/exp11-auth-method-inference/RESULT.md if reproducing this.
+testbed/certauth/pki/private/
+
+# tool outputs
+results/**/*.tmp
+
+# EXP-05: raw pcaps are large and hashed in captures/exp05/manifest.csv; the per-packet tables (*.pkts.csv.gz) are committed instead.
+testbed/captures/exp05/*.pcap
+# EXP-06 r2 and EXP-07 captures are small (KB) and are primary evidence: tracked.
+!testbed/captures/exp06r2/*.pcap
+!testbed/captures/exp07/*.pcap
+# Synthetic detector fixtures (T-022 CVE-2026-78135): forged plaintext headers,
+# tiny (<1KB), primary evidence for the detector's sensitivity. Tracked.
+!testbed/captures/synthetic/*.pcap
+# Live exploit-lab reproduction (T-022 CVE-2026-78135): genuine captured traffic
+# from a deliberately fault-injected strongSwan pair (see
+# testbed/images/strongswan-exploitlab/). Tiny (<1KB), primary evidence. Tracked.
+!testbed/captures/exploitlab/*.pcap
+# EXP-10 vendor-diversity generalization test (strongSwan vs real OpenBSD iked),
+# incl. the ESP-dataplane addendum. Tiny (<4KB each), primary evidence. Tracked.
+!testbed/captures/exp10/*.pcap
+# EXP-11 auth-method inference (R7/OQ-05): real cert-auth + differential PSK
+# control on the same responder. Tiny (<5KB each), primary evidence. Tracked.
+!testbed/captures/exp11/*.pcap
+# EXP-12 rekey-cadence measurement (R9/R12); also the capture that found the
+# CVE-detector false positive. Tiny (<3KB), primary evidence. Tracked.
+!testbed/captures/exp12/*.pcap
+
+# Python build/runtime
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+build/FINDINGS-DIFF.md
+tunnelscope/web/
+build/offline/out/
+build/lib/
+build/bdist*/
+
+# start.sh runtime
+logs/
+.run/
+.tunnelscope-history/
+# EXP-15 (T-083): suite/AH captures are small primary evidence (tracked); traffic
+# sessions are large, so their per-packet tables are committed and pcaps hashed.
+!testbed/captures/exp15/*.pcap
+testbed/captures/exp15/traffic/*.pcap
+testbed/captures/live/
+# EXP-16: real-application and Libreswan traffic sessions — large pcaps hashed in
+# captures/exp16/manifest.csv; the committed evidence is the per-packet tables.
+testbed/captures/exp16/*.pcap
+handoff/reviews/
+# EXP-17: session pcaps are large (hashed in manifest.csv); the small IKE bring-up captures are tracked
+!testbed/captures/exp17/ike/*.pcap
+testbed/captures/exp17/exp17-*.pcap

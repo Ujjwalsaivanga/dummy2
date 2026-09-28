@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package ipsec.common.v1;
+
+option go_package = "github.com/naman9271/SIH26160---Team-Alchemist/gen/go/api/proto/common/v1;commonv1";
+
+// EvidenceStatus describes how a security-relevant value was obtained.
+enum EvidenceStatus {
+  EVIDENCE_STATUS_UNSPECIFIED = 0;
+  OBSERVED = 1;
+  DERIVED = 2;
+  // INFERRED is reserved for probabilistic conclusions such as ML output.
+  INFERRED = 3;
+  // VERIFIED_GATEWAY is stronger than packet-derived evidence and is emitted
+  // only by trusted read-only gateway sources such as VICI or XFRM.
+  VERIFIED_GATEWAY = 4;
+  UNKNOWN = 5;
+}
